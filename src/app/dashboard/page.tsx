@@ -27,6 +27,8 @@ import {
   Award,
   ArrowUp,
   ArrowDown,
+  DollarSign,
+  CheckCircle2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow, format, parseISO } from "date-fns";
@@ -44,6 +46,8 @@ interface DashboardStats {
     vendors: number | {
       total: number;
       active: number;
+      inactive: number;
+      approved: number;
       pending: number;
     };
   };
@@ -111,6 +115,8 @@ export default function DashboardPage() {
   const [vendorsDailyLoading, setVendorsDailyLoading] = useState<boolean>(true);
   const [totalVendorsCount, setTotalVendorsCount] = useState<number>(0);
   const [activeVendorsCount, setActiveVendorsCount] = useState<number>(0);
+  const [inactiveVendorsCount, setInactiveVendorsCount] = useState<number>(0);
+  const [approvedVendorsCount, setApprovedVendorsCount] = useState<number>(0);
   const [pendingVendorsCount, setPendingVendorsCount] = useState<number>(0);
 
 
@@ -125,6 +131,8 @@ export default function DashboardPage() {
           if (statsData?.vendors && typeof statsData.vendors === 'object') {
             setTotalVendorsCount(statsData.vendors.total || 0);
             setActiveVendorsCount(statsData.vendors.active || 0);
+            setInactiveVendorsCount(statsData.vendors.inactive || 0);
+            setApprovedVendorsCount(statsData.vendors.approved || 0);
             setPendingVendorsCount(statsData.vendors.pending || 0);
             
             // Update users.vendors to match the structure
@@ -132,6 +140,8 @@ export default function DashboardPage() {
               statsData.users.vendors = {
                 total: statsData.vendors.total || 0,
                 active: statsData.vendors.active || 0,
+                inactive: statsData.vendors.inactive || 0,
+                approved: statsData.vendors.approved || 0,
                 pending: statsData.vendors.pending || 0,
               };
             }
@@ -196,7 +206,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchVendorCounts = async () => {
       // Only fetch if we don't have vendor counts from dashboard stats
-      if (totalVendorsCount === 0 && activeVendorsCount === 0 && pendingVendorsCount === 0) {
+      if (totalVendorsCount === 0 && activeVendorsCount === 0 && inactiveVendorsCount === 0) {
         try {
           const response = await apiClient.get(apiUrls.getAllVendorsAll);
           const vendors = response?.data?.vendors || response?.data?.data?.vendors || response?.data?.data || [];
@@ -216,12 +226,11 @@ export default function DashboardPage() {
           }).length;
           setActiveVendorsCount(active);
           
-          // Pending vendors: vendors with status "pending"
-          const pending = vendorsArray.filter((vendor: any) => {
-            const status = vendor.status?.toLowerCase();
-            return status === "pending";
+          // Inactive vendors: vendors with isActive false
+          const inactive = vendorsArray.filter((vendor: any) => {
+            return vendor.isActive === false || vendor.isActive === 'false';
           }).length;
-          setPendingVendorsCount(pending);
+          setInactiveVendorsCount(inactive);
         } catch (error: any) {
           console.error("Error fetching vendor counts:", error);
           // Keep the count from stats if API fails
@@ -232,7 +241,7 @@ export default function DashboardPage() {
     if (canAccessDashboard()) {
       fetchVendorCounts();
     }
-  }, [canAccessDashboard, totalVendorsCount, activeVendorsCount, pendingVendorsCount]);
+  }, [canAccessDashboard, totalVendorsCount, activeVendorsCount, inactiveVendorsCount]);
 
   // Fetch: Daily vendors acquired by Advisor
   useEffect(() => {
@@ -284,7 +293,7 @@ export default function DashboardPage() {
       } catch (e: any) {
         // Silently handle 404 errors for optional endpoint
         if (e?.response?.status !== 404) {
-          console.error("Failed to load vendorsByAgentDaily:", e);
+        console.error("Failed to load vendorsByAgentDaily:", e);
         }
         // Set empty array for 404 or other errors
         setVendorsDaily([]);
@@ -432,8 +441,35 @@ export default function DashboardPage() {
           />
           <ModernStatsCard
             title="Vendors"
-            value={totalVendorsCount || (typeof displayStats?.users?.vendors === 'object' ? displayStats.users.vendors.total : (typeof displayStats?.users?.vendors === 'number' ? displayStats.users.vendors : 0))}
-            subtitle={`${activeVendorsCount} active, ${pendingVendorsCount} pending`}
+            value={(() => {
+              if (typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.total !== undefined) {
+                return Number(displayStats.users.vendors.total) || 0;
+              }
+              return totalVendorsCount || 0;
+            })()}
+            subtitle={(() => {
+              const active = typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.active !== undefined 
+                ? Number(displayStats.users.vendors.active) || 0 
+                : activeVendorsCount || 0;
+              const approved = typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.approved !== undefined 
+                ? Number(displayStats.users.vendors.approved) || 0 
+                : approvedVendorsCount || 0;
+              const inactive = typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.inactive !== undefined 
+                ? Number(displayStats.users.vendors.inactive) || 0 
+                : inactiveVendorsCount || 0;
+              const pending = typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.pending !== undefined 
+                ? Number(displayStats.users.vendors.pending) || 0 
+                : pendingVendorsCount || 0;
+              
+              // Format: active, approved, inactive, pending
+              const parts = [];
+              if (active > 0) parts.push(`${active} active`);
+              if (approved > 0) parts.push(`${approved} approved`);
+              if (inactive > 0) parts.push(`${inactive} inactive`);
+              if (pending > 0) parts.push(`${pending} pending`);
+              
+              return parts.length > 0 ? parts.join(', ') : 'No vendor statistics available';
+            })()}
             icon={<Building className="w-8 h-8" />}
             gradient="from-purple-500 to-purple-600"
             onClick={() => router.push("/dashboard/vendormanagement")}
@@ -510,11 +546,11 @@ export default function DashboardPage() {
                   onClick={() => router.push("/dashboard/usermanagement")}
                 >
                   <div className="w-4 h-4 rounded-full bg-indigo-500"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-700 capitalize">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-700 capitalize">
                       Admins
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
+                          </p>
+                          <p className="text-2xl font-bold text-gray-900">
                       {(() => {
                         // First try to get from topRoles array
                         const adminRole = displayStats?.charts?.topRoles?.find((role: any) => role._id === 'admin');
@@ -542,9 +578,9 @@ export default function DashboardPage() {
                         }
                         return '';
                       })()}
-                    </p>
-                  </div>
-                </div>
+                          </p>
+                        </div>
+                      </div>
 
                 {/* Advisor */}
                 <div
@@ -692,15 +728,10 @@ export default function DashboardPage() {
                 <UserActivityCard
                   label="Total Vendors"
                   count={(() => {
-                    // First try to get from topRoles array (check both 'vendor' and 'vendors')
-                    const vendorRole = displayStats?.charts?.topRoles?.find((role: any) => 
-                      role._id?.toLowerCase() === 'vendor' || role._id?.toLowerCase() === 'vendors'
-                    );
-                    if (vendorRole && vendorRole.count !== undefined) {
-                      return Number(vendorRole.count) || 0;
+                    if (typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.total !== undefined) {
+                      return Number(displayStats.users.vendors.total) || 0;
                     }
-                    // Fallback to other sources
-                    return totalVendorsCount || (typeof displayStats?.users?.vendors === 'object' ? displayStats.users.vendors.total : (typeof displayStats?.users?.vendors === 'number' ? displayStats.users.vendors : 0));
+                    return totalVendorsCount || 0;
                   })()}
                   color="text-purple-600"
                   bgColor="bg-purple-100"
@@ -708,26 +739,39 @@ export default function DashboardPage() {
                   description="Total vendor users"
                 />
                 <UserActivityCard
-                  label="Active Vendors"
+                  label="Inactive Vendors"
                   count={(() => {
-                    // First try to get from topRoles array (check both 'vendor' and 'vendors')
-                    const vendorRole = displayStats?.charts?.topRoles?.find((role: any) => 
-                      role._id?.toLowerCase() === 'vendor' || role._id?.toLowerCase() === 'vendors'
-                    );
-                    if (vendorRole && vendorRole.activeCount !== undefined) {
-                      return Number(vendorRole.activeCount) || 0;
+                    if (typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.inactive !== undefined) {
+                      return Number(displayStats.users.vendors.inactive) || 0;
                     }
-                    // Fallback to other sources
-                    return typeof displayStats?.users?.vendors === 'object' ? displayStats.users.vendors.active : activeVendorsCount;
+                    return inactiveVendorsCount || 0;
+                  })()}
+                  color="text-red-600"
+                  bgColor="bg-red-100"
+                  icon={<XCircle className="w-5 h-5" />}
+                  description="Inactive vendors"
+                />
+                <UserActivityCard
+                  label="Approved Vendors"
+                  count={(() => {
+                    if (typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.approved !== undefined) {
+                      return Number(displayStats.users.vendors.approved) || 0;
+                    }
+                    return approvedVendorsCount || 0;
                   })()}
                   color="text-green-600"
                   bgColor="bg-green-100"
-                  icon={<CheckCircle className="w-5 h-5" />}
-                  description="Vendors with subscriptions (approved)"
+                  icon={<CheckCircle2 className="w-5 h-5" />}
+                  description="Approved vendors"
                 />
                 <UserActivityCard
                   label="Pending Vendors"
-                  count={typeof displayStats?.users?.vendors === 'object' ? displayStats.users.vendors.pending : pendingVendorsCount}
+                  count={(() => {
+                    if (typeof displayStats?.users?.vendors === 'object' && displayStats.users.vendors.pending !== undefined) {
+                      return Number(displayStats.users.vendors.pending) || 0;
+                    }
+                    return pendingVendorsCount || 0;
+                  })()}
                   color="text-yellow-600"
                   bgColor="bg-yellow-100"
                   icon={<AlertCircle className="w-5 h-5" />}
@@ -820,14 +864,14 @@ export default function DashboardPage() {
                       };
                       
                       return (
-                        <ActivityItem
-                          key={index}
-                          type={activity.type}
-                          message={activity.message}
-                          timestamp={activity.timestamp}
-                          status={activity.status}
+                      <ActivityItem
+                        key={index}
+                        type={activity.type}
+                        message={activity.message}
+                        timestamp={activity.timestamp}
+                        status={activity.status}
                           onClick={handleClick}
-                        />
+                      />
                       );
                     })
                 ) : (

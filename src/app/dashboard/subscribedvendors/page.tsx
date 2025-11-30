@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import CommonTable from "../../components/CommonTable";
@@ -11,6 +11,7 @@ import { apiUrls } from "../../apis";
 import { useUIProvider } from "../../components/UiProvider/UiProvider";
 import useGetQuery from "@/app/hooks/getQuery.hook";
 import useTableOperations from "@/app/hooks/useTableOperations";
+import usePatchQuery from "@/app/hooks/patchQuery.hook";
 
 function SubscribedVendorsContent() {
   const router = useRouter();
@@ -18,6 +19,7 @@ function SubscribedVendorsContent() {
   const { messageApi } = useUIProvider();
   const PartsPermissions = getUIPermissionsForModule(MODULES.VENDOR_MANAGEMENT);
   const { getQuery } = useGetQuery();
+  const { patchQuery } = usePatchQuery();
   const [subscribedVendors, setSubscribedVendors] = useState<any[]>([]);
   const [filteredVendors, setFilteredVendors] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -31,10 +33,12 @@ function SubscribedVendorsContent() {
   const transformSubscriptions = (subscriptions: any[]) => {
     return subscriptions.map((subscription: any) => {
       const vendor = subscription?.vendorId || {};
+      const subscriptionStatus = subscription.status || "inactive";
       return {
         ...vendor,
         _id: vendor._id || subscription._id,
         subscription: subscription,
+        subscriptionId: subscription._id, // Store subscription ID for updates
         currentSubscription: subscription,
         // Add subscription fields at top level for easier access
         planName: subscription.planName,
@@ -43,16 +47,21 @@ function SubscribedVendorsContent() {
         price: subscription.price,
         originalPrice: subscription.originalPrice,
         paymentStatus: subscription.paymentStatus,
-        status: subscription.status,
+        status: subscriptionStatus,
         endDate: subscription.endDate,
         daysRemaining: subscription.daysRemaining,
+        // Use vendor's isActive field (true/false) for Switch toggle
+        // isActive comes from vendor object - preserve false values, default to true only if undefined/null
+        // This ensures: isActive=false shows Switch OFF, isActive=true shows Switch ON
+        isActive: vendor.isActive !== undefined && vendor.isActive !== null 
+          ? Boolean(vendor.isActive) 
+          : true, // Default to true if not set
       };
     });
   };
 
   // Load vendors with paid subscriptions from API (fetch all pages)
-  useEffect(() => {
-    const loadSubscribedVendors = async () => {
+  const loadSubscribedVendors = useCallback(async () => {
       try {
         setLoading(true);
         setAccessDenied(false);
@@ -123,6 +132,15 @@ function SubscribedVendorsContent() {
           }
         }
 
+        // Log isActive values for debugging
+        console.log("Loaded vendors with isActive status:", 
+          allVendors.map((v: any) => ({
+            name: v.userName,
+            id: v._id,
+            isActive: v.isActive
+          }))
+        );
+
         setSubscribedVendors(allVendors);
         setFilteredVendors(allVendors);
         
@@ -149,10 +167,12 @@ function SubscribedVendorsContent() {
       } finally {
         setLoading(false);
       }
-    };
-
-    loadSubscribedVendors();
   }, [getQuery, messageApi]);
+
+  // Load vendors on mount
+  useEffect(() => {
+    loadSubscribedVendors();
+  }, [loadSubscribedVendors]);
 
   // Filter vendors based on search term
   useEffect(() => {
@@ -455,6 +475,32 @@ function SubscribedVendorsContent() {
     tableOps.onPageChange(page, pageSize);
   };
 
+  // Custom handler to toggle vendor isActive status
+  // Exact same pattern as useTableOperations.handleToggleActive but refreshes subscription data
+  const handleActiveToggle = async (record: TableRecord) => {
+    const vendorId = (record as any)._id || (record as any).id;
+    if (!vendorId) {
+      messageApi.error("Vendor ID not found");
+      return;
+    }
+
+    // Use the vendor toggle-status endpoint
+    patchQuery({
+      url: apiUrls.toggleVendorStatus(vendorId),
+      patchData: {
+        isActive: !(record as any).isActive,
+      },
+      onSuccess: (res: any) => {
+        messageApi.success(res.message || "Record updated successfully");
+        // Refresh subscription data to show updated isActive status
+        loadSubscribedVendors();
+      },
+      onFail: () => {
+        messageApi.error("Failed to update status");
+      },
+    });
+  };
+
   // Show access denied message if API returned access denied error
   if (accessDenied) {
     return (
@@ -551,7 +597,7 @@ function SubscribedVendorsContent() {
         addButtonLink="/dashboard/vendormanagement/add"
         onView={handleView}
         onEdit={handleEdit}
-        onActive={tableOps.onActive}
+        onActive={handleActiveToggle}
         selectable={true}
         selectedRowKeys={[]}
         onSelectionChange={() => {}}

@@ -93,6 +93,7 @@ export const apiUrls = {
   getPaidSubscriptions: "/api/v1/subscriptions/paid",
   getVendorById: (id) => `/api/v1/vendors/${id}`,
   deleteVendor: (id) => `/api/v1/vendors/${id}`,
+  toggleVendorStatus: (id) => `/api/v1/vendors/${id}/toggle-status`,
 
   // Advisor Forms Management
   createAdvisorForm: "/api/v1/advisor-forms",

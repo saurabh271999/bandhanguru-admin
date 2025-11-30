@@ -380,16 +380,19 @@ function VendorManagementContent() {
     },
   ];
 
-  // const filters = [
-  //   {
-  //     key: "agentCode",
-  //     label: "Employee Code",
-  //     type: "select" as const,
-  //     placeholder: "Select employee code",
-  //     width: "150px",
-  //     options: [],
-  //   },
-  // ];
+  const filters = [
+    {
+      key: "status",
+      label: "Status",
+      type: "select" as const,
+      placeholder: "Select status",
+      width: "150px",
+      options: [
+        { value: "approved", label: "Approved" },
+        { value: "pending", label: "Pending" },
+      ],
+    },
+  ];
 
   const handleView = (record: TableRecord) => {
     router.push(`/dashboard/vendormanagement/view?id=${record._id}`);
