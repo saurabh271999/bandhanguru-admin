@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input, Button, Spin, Image, Carousel, Alert } from "antd";
+import { Download } from "lucide-react";
 import { VendorManagementRouteGuard } from "@/app/components/PermissionGuard";
 import useGetQuery from "@/app/hooks/getQuery.hook";
 import { apiUrls } from "@/app/apis";
@@ -459,6 +460,71 @@ export default function ViewVendorPage() {
                       // Hardcode plan status as "active"
                       const planStatus = "active";
 
+                      // Handle invoice download
+                      const handleInvoiceDownload = async () => {
+                        const invoiceUrl = activeSubscription.invoicePdfUrl;
+                        if (!invoiceUrl) {
+                          messageApi.error("Invoice not available");
+                          return;
+                        }
+
+                        try {
+                          // Try to fetch as blob first (for CORS-enabled files)
+                          const response = await fetch(invoiceUrl, {
+                            mode: "cors",
+                            credentials: "omit",
+                          });
+
+                          if (response.ok) {
+                            const blob = await response.blob();
+                            const blobUrl = window.URL.createObjectURL(blob);
+
+                            const link = document.createElement("a");
+                            link.href = blobUrl;
+                            const fileName =
+                              invoiceUrl.split("/").pop() || "invoice.pdf";
+                            link.setAttribute("download", fileName);
+                            document.body.appendChild(link);
+                            link.click();
+                            link.remove();
+                            window.URL.revokeObjectURL(blobUrl);
+
+                            messageApi.success("Invoice downloaded successfully!");
+                            return;
+                          }
+                        } catch (error) {
+                          console.log("CORS fetch failed, trying alternative method:", error);
+                        }
+
+                        // Fallback: Try direct download
+                        try {
+                          const link = document.createElement("a");
+                          link.href = invoiceUrl;
+                          link.download = "invoice.pdf";
+                          link.target = "_blank";
+                          link.rel = "noopener noreferrer";
+                          document.body.appendChild(link);
+                          link.click();
+                          link.remove();
+
+                          messageApi.success("Download initiated!");
+                        } catch (fallbackError) {
+                          console.error("Fallback download failed:", fallbackError);
+                          // Final fallback: Open in new tab
+                          try {
+                            window.open(invoiceUrl, "_blank");
+                            messageApi.info(
+                              "Invoice opened in new tab. Right-click and select 'Save as' to download."
+                            );
+                          } catch (finalError) {
+                            console.error("All download methods failed:", finalError);
+                            messageApi.error(
+                              "Unable to download invoice. Please check the URL or try again."
+                            );
+                          }
+                        }
+                      };
+
                       return (
                         <div className="space-y-4">
                           {/* Plan Header */}
@@ -663,6 +729,21 @@ export default function ViewVendorPage() {
                               <p className="text-sm font-medium text-blue-600">
                                 {activeSubscription.couponCode}
                               </p>
+                            </div>
+                          )}
+
+                          {/* Invoice Download Button */}
+                          {activeSubscription.invoicePdfUrl && (
+                            <div className="pt-4 border-t border-blue-200">
+                              <Button
+                                type="primary"
+                                icon={<Download className="w-4 h-4" />}
+                                onClick={handleInvoiceDownload}
+                                className="w-full sm:w-auto"
+                                size="large"
+                              >
+                                Download Invoice
+                              </Button>
                             </div>
                           )}
                         </div>
