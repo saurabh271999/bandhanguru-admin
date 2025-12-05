@@ -12,6 +12,8 @@ import { useUIProvider } from "../../components/UiProvider/UiProvider";
 import useGetQuery from "@/app/hooks/getQuery.hook";
 import useTableOperations from "@/app/hooks/useTableOperations";
 import usePatchQuery from "@/app/hooks/patchQuery.hook";
+import { Button } from "antd";
+import { Download } from "lucide-react";
 
 function SubscribedVendorsContent() {
   const router = useRouter();
@@ -28,6 +30,9 @@ function SubscribedVendorsContent() {
 
   const [accessDenied, setAccessDenied] = useState(false);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState("");
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
+  const [downloadingInvoices, setDownloadingInvoices] = useState(false);
+  const [selectionModeEnabled, setSelectionModeEnabled] = useState(false);
 
   // Function to transform subscriptions to vendor data
   const transformSubscriptions = (subscriptions: any[]) => {
@@ -126,7 +131,7 @@ function SubscribedVendorsContent() {
               const pageVendors = transformSubscriptions(pageSubscriptions);
               allVendors = [...allVendors, ...pageVendors];
             }
-          } catch (error) {
+      } catch (error) {
             console.error(`Error loading page ${page}:`, error);
             // Continue with next page even if one fails
           }
@@ -434,20 +439,20 @@ function SubscribedVendorsContent() {
         if (daysRemaining < 0) {
           return <span className="text-red-600">Expired</span>;
         }
-        
-        return (
-          <span
-            className={`font-medium ${
+            
+            return (
+              <span
+                className={`font-medium ${
               daysRemaining > 30
-                ? "text-green-600"
+                    ? "text-green-600"
                 : daysRemaining > 7
-                ? "text-yellow-600"
-                : "text-red-600"
-            }`}
-          >
+                    ? "text-yellow-600"
+                    : "text-red-600"
+                }`}
+              >
             {daysRemaining} days
-          </span>
-        );
+              </span>
+            );
       },
     },
   ];
@@ -499,6 +504,176 @@ function SubscribedVendorsContent() {
         messageApi.error("Failed to update status");
       },
     });
+  };
+
+  // Handle vendor selection
+  const handleSelectionChange = (selectedKeys: string[]) => {
+    setSelectedVendors(selectedKeys);
+  };
+
+  // Toggle selection mode and handle download
+  const handleDownloadInvoiceClick = () => {
+    if (!selectionModeEnabled) {
+      // Enable selection mode
+      setSelectionModeEnabled(true);
+      messageApi.info("Selection mode enabled. Select vendors to download invoices.");
+    } else {
+      // If vendors are selected, download invoices
+      if (selectedVendors.length > 0) {
+        handleBulkInvoiceDownload();
+      } else {
+        messageApi.warning("Please select at least one vendor to download invoices");
+      }
+    }
+  };
+
+  // Handle select all
+  const handleSelectAll = () => {
+    if (selectedVendors.length === paginatedData.length) {
+      // Deselect all
+      setSelectedVendors([]);
+    } else {
+      // Select all
+      const allIds = paginatedData.map((vendor: any) => vendor._id || vendor.id).filter(Boolean);
+      setSelectedVendors(allIds);
+    }
+  };
+
+  // Cancel selection mode
+  const handleCancelSelection = () => {
+    setSelectionModeEnabled(false);
+    setSelectedVendors([]);
+  };
+
+  // Helper function to download a single invoice
+  const downloadInvoice = async (
+    invoiceUrl: string,
+    fileName: string,
+    vendorName: string,
+    delay: number = 0
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      setTimeout(async () => {
+        try {
+          // Try to fetch as blob first (for CORS-enabled files)
+          const response = await fetch(invoiceUrl, {
+            mode: "cors",
+            credentials: "omit",
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = blobUrl;
+            // Use vendor name in filename for better organization
+            const safeVendorName = vendorName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+            link.setAttribute("download", `${safeVendorName}_${fileName}`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(blobUrl);
+            resolve();
+            return;
+          }
+        } catch (error) {
+          console.log("CORS fetch failed, trying alternative method:", error);
+        }
+
+        // Fallback: Try direct download
+        try {
+          const link = document.createElement("a");
+          link.href = invoiceUrl;
+          const safeVendorName = vendorName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+          link.download = `${safeVendorName}_${fileName}`;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          resolve();
+        } catch (fallbackError) {
+          console.error("Fallback download failed:", fallbackError);
+          // Final fallback: Open in new tab
+          try {
+            window.open(invoiceUrl, "_blank");
+            resolve();
+          } catch (finalError) {
+            console.error("All download methods failed:", finalError);
+            reject(finalError);
+          }
+        }
+      }, delay);
+    });
+  };
+
+  // Download invoices for selected vendors
+  const handleBulkInvoiceDownload = async () => {
+    if (selectedVendors.length === 0) {
+      messageApi.warning("Please select at least one vendor to download invoices");
+      return;
+    }
+
+    setDownloadingInvoices(true);
+    messageApi.info(`Preparing to download invoices for ${selectedVendors.length} vendor(s)...`);
+
+    try {
+      // Get all vendors data from filteredVendors (which has subscription data)
+      const selectedVendorRecords = filteredVendors.filter((vendor: any) => {
+        const vendorId = vendor._id || vendor.id;
+        return selectedVendors.includes(vendorId);
+      });
+
+      if (selectedVendorRecords.length === 0) {
+        messageApi.error("Selected vendors not found in current data");
+        setDownloadingInvoices(false);
+        return;
+      }
+
+      // Collect invoice URLs from subscription data (already available in the records)
+      const invoiceUrls: Array<{ url: string; vendorName: string; fileName: string }> = [];
+      
+      selectedVendorRecords.forEach((vendor: any) => {
+        const subscription = vendor.subscription || vendor.currentSubscription;
+        if (subscription?.invoicePdfUrl) {
+          const vendorName = vendor.userName || vendor.businessName || "Unknown";
+          const fileName = subscription.invoicePdfUrl.split("/").pop() || `invoice_${vendor._id || vendor.id}.pdf`;
+          invoiceUrls.push({
+            url: subscription.invoicePdfUrl,
+            vendorName: vendorName,
+            fileName: fileName,
+          });
+        }
+      });
+
+      if (invoiceUrls.length === 0) {
+        messageApi.warning("No invoices found for selected vendors");
+        setDownloadingInvoices(false);
+        return;
+      }
+
+      // Download all invoices
+      messageApi.info(`Downloading ${invoiceUrls.length} invoice(s)...`);
+      
+      for (let i = 0; i < invoiceUrls.length; i++) {
+        const { url, vendorName, fileName } = invoiceUrls[i];
+        try {
+          await downloadInvoice(url, fileName, vendorName, i * 300); // Stagger downloads by 300ms
+        } catch (error) {
+          console.error(`Failed to download invoice for ${vendorName}:`, error);
+        }
+      }
+
+      messageApi.success(`Successfully downloaded ${invoiceUrls.length} invoice(s)`);
+      setSelectedVendors([]); // Clear selection after download
+      setSelectionModeEnabled(false); // Disable selection mode after download
+    } catch (error) {
+      console.error("Error downloading invoices:", error);
+      messageApi.error("Failed to download invoices. Please try again.");
+    } finally {
+      setDownloadingInvoices(false);
+    }
   };
 
   // Show access denied message if API returned access denied error
@@ -598,9 +773,9 @@ function SubscribedVendorsContent() {
         onView={handleView}
         onEdit={handleEdit}
         onActive={handleActiveToggle}
-        selectable={true}
-        selectedRowKeys={[]}
-        onSelectionChange={() => {}}
+        selectable={selectionModeEnabled}
+        selectedRowKeys={selectedVendors}
+        onSelectionChange={handleSelectionChange}
         showHeader={true}
         showPagination={true}
         showSearch={true}
@@ -614,6 +789,50 @@ function SubscribedVendorsContent() {
         loaderType="table"
         loaderRows={5}
         loaderColumns={columns.length}
+        customHeaderContent={
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <Button
+                type={selectionModeEnabled ? "default" : "primary"}
+                icon={<Download className="w-4 h-4" />}
+                onClick={handleDownloadInvoiceClick}
+                loading={downloadingInvoices}
+                className="h-10"
+              >
+                {selectionModeEnabled && selectedVendors.length > 0
+                  ? `Download Invoices (${selectedVendors.length})`
+                  : selectionModeEnabled
+                  ? "Download Invoices"
+                  : "Download Invoice"}
+              </Button>
+              
+              {selectionModeEnabled && (
+                <>
+                  <Button
+                    onClick={handleSelectAll}
+                    className="h-10"
+                  >
+                    {selectedVendors.length === paginatedData.length
+                      ? "Deselect All"
+                      : "Select All"}
+                  </Button>
+                  <Button
+                    onClick={handleCancelSelection}
+                    className="h-10"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            {selectionModeEnabled && (
+              <span className="text-sm text-gray-600">
+                {selectedVendors.length} of {paginatedData.length} vendor(s) selected
+              </span>
+            )}
+          </div>
+        }
       />
     </>
   );

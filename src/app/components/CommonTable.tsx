@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState } from "react";
 import { Edit, Trash2, Search, Eye, Info } from "lucide-react";
-import { Input, Select, Button, Pagination, Tooltip, Switch } from "antd";
+import { Input, Select, Button, Pagination, Tooltip, Switch, Checkbox } from "antd";
 import Link from "next/link";
 import { Modal } from "antd";
 // import { ExclamationCircleOutlined } from "@ant-design/icons";
@@ -81,6 +81,9 @@ interface CommonTableProps {
   canEdit?: boolean;
   canDelete?: boolean;
   canCreate?: boolean;
+
+  // Custom content below search bar
+  customHeaderContent?: React.ReactNode;
 }
 
 const CommonTable: React.FC<CommonTableProps> = ({
@@ -128,6 +131,7 @@ const CommonTable: React.FC<CommonTableProps> = ({
   canEdit = true,
   canDelete = true,
   canCreate = true,
+  customHeaderContent,
 }) => {
   const [searchValue, setSearchValue] = useState("");
   const [filterValues, setFilterValues] = useState<
@@ -614,6 +618,13 @@ const CommonTable: React.FC<CommonTableProps> = ({
               )}
             </div>
 
+            {/* Custom header content below search bar */}
+            {customHeaderContent && (
+              <div className="mb-3">
+                {customHeaderContent}
+              </div>
+            )}
+
             <div
               className={`overflow-x-auto  border text-black border-gray-200 relative ${
                 loading ? "pointer-events-none" : ""
@@ -622,7 +633,7 @@ const CommonTable: React.FC<CommonTableProps> = ({
               <table className="min-w-full text-sm text-left">
                 <thead className="bg-[#E2F2C3] text-black font-semibold">
                   <tr>
-                    {/* {selectable && (
+                    {selectable && (
                       <th className="p-2">
                         <Checkbox
                           checked={
@@ -635,18 +646,15 @@ const CommonTable: React.FC<CommonTableProps> = ({
                           }
                           onChange={(e) => {
                             if (e.target.checked) {
-                              handleSelectionChange(
-                                data.map((item) => item.id || item._id)
-                              );
+                              const allIds = data.map((item) => item.id || item._id).filter(Boolean);
+                              handleSelectionChange(allIds);
                             } else {
-                              handleSelectionChange(
-                                selectedKeys.filter((k) => k !== key)
-                              );
+                              handleSelectionChange([]);
                             }
                           }}
                         />
                       </th>
-                    )} */}
+                    )}
                     {columns.map((column) => (
                       <th
                         key={column.key}
@@ -679,6 +687,13 @@ const CommonTable: React.FC<CommonTableProps> = ({
                         key={`skeleton-${index}`}
                         className="border-t border-gray-200"
                       >
+                        {selectable && (
+                          <td className="p-2">
+                            <div className="animate-pulse">
+                              <div className="h-4 w-4 bg-gray-200 rounded"></div>
+                            </div>
+                          </td>
+                        )}
                         {columns.map((column) => (
                           <td
                             key={`skeleton-${index}-${column.key}`}
@@ -732,7 +747,7 @@ const CommonTable: React.FC<CommonTableProps> = ({
                         key={record.id || record._id || index}
                         className="border-t p-3 text-[10px] border-gray-200 hover:bg-gray-50"
                       >
-                        {/* {selectable && (
+                        {selectable && (
                           <td className="p-2">
                             <Checkbox
                               checked={selectedKeys.includes(
@@ -750,7 +765,7 @@ const CommonTable: React.FC<CommonTableProps> = ({
                               }}
                             />
                           </td>
-                        )} */}
+                        )}
                         {columns.map((column) => (
                           <td key={column.key} className="p-2 text-[.82rem]">
                             {column.render
